@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Уровень 2 — собрать из полного алфавита</title>
+<style>
+  body{font-family:Inter,system-ui,Segoe UI,Roboto,Arial;background:#f7fafc;margin:0;color:#0b1220}
+  header{padding:18px;text-align:center;background:white;box-shadow:0 1px 0 rgba(0,0,0,0.04)}
+  main{max-width:980px;margin:20px auto;padding:16px}
+  .card{background:#fff;padding:16px;border-radius:12px;box-shadow:0 6px 20px rgba(2,6,23,0.04);margin-bottom:12px}
+  .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  button{background:#0f62fe;color:#fff;padding:10px;border-radius:10px;border:0;cursor:pointer}
+  .keyboard{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .key{min-width:40px;min-height:40px;border-radius:8px;background:#fff;border:1px solid #e6eef8;display:flex;align-items:center;justify-content:center;cursor:pointer;user-select:none}
+  .input{min-height:48px;border:1px solid #e6eef8;padding:8px;border-radius:8px;font-size:20px;display:flex;gap:6px;align-items:center}
+  .kbd-row{display:flex;gap:6px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Уровень 2 — составить слово из полного алфавита</h1>
+  <div style="color:#6b7280">Диктовка + нажатие букв на экранной клавиатуре. Поддержка клавиатуры физической.</div>
+</header>
+
+<main>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div class="controls">
+        <button id="playBtn">▶ Диктовка</button>
+        <button id="slowBtn" class="alt">🐢 Медленно</button>
+        <button id="clearBtn" class="alt">⌫ Очистить</button>
+      </div>
+      <div>
+        <button id="submitBtn">Проверить</button>
+        <button id="nextBtn" class="alt">Следующее</button>
+      </div>
+    </div>
+
+    <div style="margin-top:12px">
+      <div class="input" id="answer" aria-live="polite"></div>
+      <div id="feedback" style="margin-top:10px;font-weight:600"></div>
+    </div>
+
+    <div style="margin-top:12px">
+      <div><strong>Клавиатура:</strong></div>
+      <div id="keyboard" class="keyboard"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Подсказки</h3>
+    <ul>
+      <li>Можно набирать также с физической клавиатуры (лат. раскладка должна быть переключена на русскую).</li>
+      <li>Нажатие пробела добавит пробел (для фраз типа «до свидания»).</li>
+    </ul>
+  </div>
+</main>
+
+<script>
+const WORDS = [
+"алфавит","апрель","берёза","быстро","вдруг","весело","ветер","воробей","ворона",
+"город","девочка","дежурный","декабрь","деревня","дорога","до свидания",
+"завод","заяц","здравствуйте","земляника","извините","иней","капуста","карандаш",
+"картина","класс","коньки","корова","лопата","лягушка","магазин","малина","машина",
+"мебель","медведь","месяц","метель","метро","молоко","молоток","морковь","мороз","москва",
+"народ","ноябрь","обед","обезьяна","облако","одежда","октябрь","осина","отец",
+"пальто","пенал","петух","платье","посуда","прощай","работа","рабочий","ребята","рисунок",
+"родина","россия","русский","сапоги","сахар","сентябрь","скоро","снегирь","собака","сорока",
+"спасибо","стакан","суббота","тарелка","тетрадь","товарищ","топор","улица","урожай",
+"ученик","ученица","учитель","учительница","фамилия","февраль","хорошо","щавель",
+"яблоко","яблоня","ягода","язык","январь"
+];
+
+const ALPHABET = ['а','б','в','г','д','е','ё','ж','з','и','й','к','л','м','н','о','п','р','с','т','у','ф','х','ц','ч','ш','щ','ъ','ы','ь','э','ю','я'];
+
+let pool = [...WORDS].sort(()=>Math.random()-0.5);
+let idx = 0;
+let cur = '';
+const answerEl = document.getElementById('answer');
+const keyboardEl = document.getElementById('keyboard');
+const feedback = document.getElementById('feedback');
+
+function renderKeyboard(){
+  keyboardEl.innerHTML='';
+  ALPHABET.forEach(letter=>{
+    const b = document.createElement('div');
+    b.className='key';
+    b.textContent = letter;
+    b.addEventListener('click', ()=> addChar(letter));
+    keyboardEl.appendChild(b);
+  });
+  // add space and backspace
+  const space = document.createElement('div'); space.className='key'; space.style.minWidth='120px'; space.textContent='␣ (пробел)';
+  space.addEventListener('click', ()=> addChar(' '));
+  keyboardEl.appendChild(space);
+  const back = document.createElement('div'); back.className='key'; back.textContent='⌫';
+  back.addEventListener('click', backspace);
+  keyboardEl.appendChild(back);
+}
+
+function addChar(ch){
+  answerEl.textContent += ch;
+}
+
+function backspace(){
+  answerEl.textContent = answerEl.textContent.slice(0,-1);
+}
+
+function clearAnswer(){ answerEl.textContent = ''; }
+
+function check(){
+  const ans = answerEl.textContent.trim();
+  if (ans.toLowerCase() === cur.toLowerCase()){
+    feedback.style.color='green';
+    feedback.textContent='Правильно! 🎉';
+    idx++;
+    setTimeout(()=> nextWord(), 700);
+  } else {
+    feedback.style.color='crimson';
+    feedback.textContent='Неправильно — попробуйте ещё.';
+  }
+}
+
+function nextWord(){
+  if (idx >= pool.length) {
+    alert('Все слова пройдены — начинаем сначала.');
+    idx = 0;
+    pool.sort(()=>Math.random()-0.5);
+  }
+  cur = pool[idx];
+  clearAnswer();
+  feedback.textContent = '';
+}
+
+document.getElementById('playBtn').addEventListener('click', ()=> speakText(cur, 1.0));
+document.getElementById('slowBtn').addEventListener('click', ()=> speakText(cur, 0.8));
+document.getElementById('clearBtn').addEventListener('click', clearAnswer);
+document.getElementById('submitBtn').addEventListener('click', check);
+document.getElementById('nextBtn').addEventListener('click', ()=> { idx++; nextWord(); });
+
+// Keyboard physical support
+document.addEventListener('keydown', (e)=>{
+  if (e.key === 'Backspace') { e.preventDefault(); backspace(); return; }
+  if (e.key === 'Enter') { check(); return; }
+  if (e.key === ' ') { addChar(' '); e.preventDefault(); return; }
+  // support Russian letters when user uses Russian layout
+  const k = e.key.toLowerCase();
+  // only accept single-char russian letters (and 'ё')
+  if (k.length === 1 && (ALPHABET.includes(k) || k === 'ё')) addChar(k);
+});
+
+/* --- TTS --- */
+let voices = [];
+function loadVoices(){ voices = speechSynthesis.getVoices() || []; }
+speechSynthesis.onvoiceschanged = loadVoices;
+loadVoices();
+
+function chooseRussianVoice(){
+  if (!voices.length) loadVoices();
+  return voices.find(v=>v.lang && v.lang.toLowerCase().startsWith('ru')) || voices.find(v=>/russian/i.test(v.name)) || null;
+}
+
+function speakText(text, rate=1.0){
+  if (!('speechSynthesis' in window)){ alert('TTS не поддерживается'); return; }
+  const u = new SpeechSynthesisUtterance(text);
+  const v = chooseRussianVoice();
+  if (v) u.voice = v;
+  u.rate = rate;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(u);
+}
+
+/* init */
+renderKeyboard();
+nextWord();
+</script>
+</body>
+</html>

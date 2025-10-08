@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Тренажёры по словарным словам — 2 класс (Канакина, Горецкий)</title>
+<style>
+  :root{--bg:#f7fafc;--card:#fff;--accent:#2563eb;--muted:#6b7280}
+  body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial; background:var(--bg); margin:0; color:#111}
+  header{background:linear-gradient(90deg,#eef2ff,#fff);padding:28px 16px;text-align:center;box-shadow:0 2px 6px rgba(16,24,40,0.04)}
+  main{max-width:900px;margin:28px auto;padding:12px}
+  .card{background:var(--card);border-radius:12px;padding:18px;box-shadow:0 6px 20px rgba(2,6,23,0.04);margin-bottom:16px}
+  h1{margin:0 0 6px;font-size:1.35rem}
+  p.lead{color:var(--muted);margin:0 0 12px}
+  .grid{display:flex;gap:12px;flex-wrap:wrap}
+  a.button{display:inline-block;background:var(--accent);color:white;padding:10px 14px;border-radius:10px;text-decoration:none}
+  footer{font-size:13px;color:var(--muted);text-align:center;margin-top:18px}
+  ul{margin:12px 0;padding-left:18px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Тренажёры по словарным словам — 2 класс</h1>
+  <div style="color:#374151">Основы — словарные слова по Канакиной & Горецкому. Диктовка через TTS, проверка и подсказки.</div>
+</header>
+
+<main>
+  <div class="card">
+    <h2>Упражнения</h2>
+    <p class="lead">Начните с первого уровня (собрать слово из перемешанных букв). Второй уровень — собирать слово с помощью полной русской клавиатуры.</p>
+    <div class="grid">
+      <a class="button" href="exercise-1-scramble.html">Уровень 1 — собрать из букв (скрамбл)</a>
+      <a class="button" href="exercise-2-alphabet.html">Уровень 2 — из полного алфавита</a>
+    </div>
+    <ul>
+      <li>Поддержка TTS: клик на значок ▶️ — слово будет продиктовано.</li>
+      <li>Подсказки: открыть первую букву, подсветить следующую букву.</li>
+      <li>Прогресс сохраняется локально.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Список слов (используется в упражнениях)</h3>
+    <p class="lead">Слова взяты из вашего списка: алфавит, апрель, берёза, быстро, ... (все слова доступны в упражнениях).</p>
+  </div>
+
+  <footer>
+    Сделано для размещения на GitHub Pages — просто загрузите файлы в репозиторий. Если в браузере не работает диктовка, посмотрите в настройках браузера голосовые пакеты для русского.
+  </footer>
+</main>
+</body>
+</html>
