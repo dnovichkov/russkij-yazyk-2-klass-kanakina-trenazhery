@@ -25,6 +25,7 @@
   .slot{min-width:var(--slot-size);min-height:var(--slot-size);border-radius:8px;background:#fff;border:2px dashed #e6eef8;display:flex;align-items:center;justify-content:center;font-size:20px;user-select:none;position:relative;color:#0b1220}
   .slot.space{background:transparent;border:0;min-width:32px}
   .slot.wrong{box-shadow:0 0 0 3px rgba(255,77,79,0.12);border-color:var(--danger)}
+  .slot.focused{outline:3px solid rgba(15,98,254,0.12);box-shadow:0 6px 16px rgba(15,98,254,0.04)}
   .keyboard{display:grid;grid-template-columns:repeat(auto-fit,minmax(48px,1fr));gap:8px;margin-top:12px}
   .key{min-height:48px;border-radius:8px;background:#fff;border:1px solid #e6eef8;display:flex;align-items:center;justify-content:center;cursor:pointer;user-select:none;font-size:18px;color:#0b1220}
   .key.selected{box-shadow:0 4px 10px rgba(2,6,23,0.08);outline:2px solid rgba(15,98,254,0.08)}
@@ -32,8 +33,7 @@
   .hint{background:#f9fafb;color:#374151;border-radius:8px;padding:6px;font-size:13px}
   .small{font-size:13px;color:var(--muted)}
   #feedback{margin-top:10px;font-weight:600}
-  /* Скрываем зеркальный ответ (чтобы не дублировалось) — резервируем slotsWrap как единственный видимый ряд */
-  #answerRow { display: none; }
+  #answerRow { display:none; } /* зеркало скрыто, чтобы не дублировалось */
   @media (max-width:480px){
     :root{--slot-size:44px}
     .key{min-height:44px;font-size:16px}
@@ -67,7 +67,7 @@
     </div>
 
     <div style="margin-top:12px">
-      <!-- answerRow скрыт, чтобы не показывать дубли -->
+      <!-- answerRow скрыт, резервируем его для accessibility -->
       <div class="input" aria-live="polite" id="answerRow" role="region" aria-label="Ответ — соберите слово"></div>
 
       <div id="slotsWrap" class="slots" aria-hidden="false"></div>
@@ -78,14 +78,14 @@
     <div class="card" style="margin-top:12px">
       <div><strong>Клавиатура:</strong></div>
       <div id="keyboard" class="keyboard" aria-label="Экранная клавиатура"></div>
-      <div style="margin-top:8px" class="small">Нажмите на букву, чтобы добавить её в первое пустое место. На мобильных — тапните для выбора и затем тапните на слот.</div>
+      <div style="margin-top:8px" class="small">Нажмите на букву, чтобы добавить её в выбранную ячейку или в первое пустое место. На мобильных — тапните для выбора и затем тапните на слот.</div>
     </div>
   </div>
 
   <div class="card">
     <h3>Поддержка и подсказки</h3>
     <ul>
-      <li>Физическая клавиатура: ввод русскими буквами заполняет слоты; Backspace — удаляет последнюю букву; Enter — проверка.</li>
+      <li>Физическая клавиатура: ввод русскими буквами заполняет слоты; Backspace — удаляет букву в фокусе или последнюю заполненную; Enter — проверка.</li>
       <li>Подсказка открывает первую не заполненную букву. Кнопка деактивируется, когда слово полностью открыто.</li>
       <li>Прогресс учитывает только правильно собранные слова.</li>
     </ul>
@@ -93,16 +93,16 @@
 </main>
 
 <script>
-/* Защищённая версия, с исправлениями для отображения клавиатуры и убранным дублированием рядов */
+/* Полный защищённый файл с курсором (focusIndex) для ввода фраз с пробелами */
 
-/* Конфигурация */
+/* ---------- Конфигурация ---------- */
 const AUTO_NEXT_DELAY = 600;
 let autoNextTimeoutId = null;
 
 /* Алфавит */
 const ALPHABET = ['а','б','в','г','д','е','ё','ж','з','и','й','к','л','м','н','о','п','р','с','т','у','ф','х','ц','ч','ш','щ','ъ','ы','ь','э','ю','я'];
 
-/* Список слов */
+/* Список слов/фраз */
 const WORDS = [
 "алфавит","апрель","берёза","быстро","вдруг","весело","ветер","воробей","ворона",
 "город","девочка","дежурный","декабрь","деревня","дорога","до свидания",
@@ -117,72 +117,98 @@ const WORDS = [
 "яблоко","яблоня","ягода","язык","январь"
 ];
 
-/* DOM */
+/* ---------- DOM элементы ---------- */
 const progressEl = document.getElementById('progress');
 const keyboardEl = document.getElementById('keyboard');
-const answerRow = document.getElementById('answerRow');
+const answerRow = document.getElementById('answerRow'); // скрыт визуально
 const slotsWrap = document.getElementById('slotsWrap');
 const feedback = document.getElementById('feedback');
 const hintBtn = document.getElementById('hintBtn');
 
-/* State */
+/* ---------- Состояние ---------- */
 let pool = [];
 let idx = 0;
 let completed = 0;
 let current = '';
 let slotsState = []; // '' | ' ' | letter
-const STORAGE_KEY = 'russian_alphabet_progress_v3';
+let focusIndex = null; // индекс ячейки, в которую будет вставляться следующая буква (или null)
+const STORAGE_KEY = 'russian_alphabet_progress_v4';
 
-/* Helpers */
-function safeLog(...a){ try{ console.log(...a);}catch(e){} }
-function safeError(...a){ try{ console.error(...a);}catch(e){} }
-function showFeedback(text, isError=false){ try{ feedback.style.color = isError ? 'crimson':'green'; feedback.textContent = text; }catch(e){} }
+/* Touch detection и selection */
+const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+let selectedKey = null;
 
-/* TTS safe */
+/* ---------- Утилиты для логов и feedback ---------- */
+function safeLog(...args){ try{ console.log(...args);}catch(e){} }
+function safeError(...args){ try{ console.error(...args);}catch(e){} }
+function showFeedback(text, isError=false){ try{ feedback.style.color = isError ? 'crimson' : 'green'; feedback.textContent = text; }catch(e){} }
+
+/* ---------- Global error handlers ---------- */
+window.addEventListener('error', (ev) => {
+  safeError('Global error:', ev);
+  showFeedback('Произошла ошибка — смотрите консоль.', true);
+});
+window.addEventListener('unhandledrejection', (ev) => {
+  safeError('Unhandled rejection:', ev);
+  showFeedback('Ошибка (Promise). Смотрите консоль.', true);
+});
+
+/* ---------- TTS (защита) ---------- */
 function loadVoices(){ try { return speechSynthesis.getVoices() || []; } catch(e){ return []; } }
-function waitVoices(timeout = 1000){ return new Promise(resolve=>{ try{ const vs = loadVoices(); if (vs.some(v=>v.lang && v.lang.toLowerCase().startsWith('ru'))){ resolve(true); return; } let waited=0; const step=150; const iv=setInterval(()=>{ try{ const vs2=loadVoices(); waited+=step; if (vs2.some(v=>v.lang && v.lang.toLowerCase().startsWith('ru')) || waited>=timeout){ clearInterval(iv); resolve(true); } }catch(e){ clearInterval(iv); resolve(false);} }, step); }catch(e){ resolve(false);} }); }
-function chooseRussianVoice(){ try{ const vs=loadVoices(); let v=vs.find(x=>x.lang && x.lang.toLowerCase().startsWith('ru')); if(!v) v=vs.find(x=>/russian/i.test(x.name)); return v||null; }catch(e){return null;} }
-function speakText(text, rate=1.0){ try{ if(!('speechSynthesis' in window)) return; const u=new SpeechSynthesisUtterance(text); const v=chooseRussianVoice(); if(v) u.voice=v; u.rate=rate; speechSynthesis.cancel(); speechSynthesis.speak(u);}catch(e){safeError('speakText',e);} }
+function waitVoices(timeout = 1000){ return new Promise(resolve => {
+  try {
+    const vs = loadVoices();
+    if (vs.some(v => v.lang && v.lang.toLowerCase().startsWith('ru'))) { resolve(true); return; }
+  } catch(e){}
+  let waited = 0; const step = 150;
+  const iv = setInterval(()=>{
+    try {
+      const vs2 = loadVoices(); waited += step;
+      if (vs2.some(v => v.lang && v.lang.toLowerCase().startsWith('ru')) || waited >= timeout) { clearInterval(iv); resolve(true); }
+    } catch(e){ clearInterval(iv); resolve(false); }
+  }, step);
+}); }
+function chooseRussianVoice(){ try { const vs = loadVoices(); let v = vs.find(x => x.lang && x.lang.toLowerCase().startsWith('ru')); if (!v) v = vs.find(x => /russian/i.test(x.name)); return v || null; } catch(e) { return null; } }
+function speakText(text, rate=1.0){ try { if (!('speechSynthesis' in window)) return; const u = new SpeechSynthesisUtterance(text); const v = chooseRussianVoice(); if (v) u.voice = v; u.rate = rate; speechSynthesis.cancel(); speechSynthesis.speak(u); } catch(e) { safeError('speakText', e); } }
 
-/* Storage safe */
-function saveProgress(){ try{ localStorage.setItem(STORAGE_KEY, JSON.stringify({pool, idx, completed})); }catch(e){ safeError('saveProgress',e);} }
-function loadProgress(){ try{ const raw=localStorage.getItem(STORAGE_KEY); if(!raw) return false; const obj=JSON.parse(raw); if(obj && Array.isArray(obj.pool) && typeof obj.idx==='number' && typeof obj.completed==='number'){ pool=obj.pool; idx=obj.idx; completed=obj.completed; return true; } }catch(e){ safeError('loadProgress',e);} return false; }
+/* ---------- localStorage safe ---------- */
+function saveProgress(){ try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ pool, idx, completed })); } catch(e){ safeError('saveProgress', e); } }
+function loadProgress(){ try { const raw = localStorage.getItem(STORAGE_KEY); if (!raw) return false; const obj = JSON.parse(raw); if (obj && Array.isArray(obj.pool) && typeof obj.idx === 'number' && typeof obj.completed === 'number'){ pool = obj.pool; idx = obj.idx; completed = obj.completed; return true; } } catch(e){ safeError('loadProgress', e); } return false; }
 
-/* Pool */
-function initPool(){ pool=[...WORDS]; pool.sort(()=>Math.random()-0.5); idx=0; completed=0; updateProgress(); }
-function updateProgress(){ try{ progressEl.textContent = `${completed} / ${pool.length}`; }catch(e){ safeError(e); } }
+/* ---------- Pool / progress ---------- */
+function initPool(){ try { pool = [...WORDS]; pool.sort(()=>Math.random()-0.5); idx = 0; completed = 0; updateProgress(); } catch(e){ safeError('initPool', e); } }
+function updateProgress(){ try { progressEl.textContent = `${completed} / ${pool.length}`; } catch(e){ safeError('updateProgress', e); } }
 
-/* Render keyboard and slots */
+/* ---------- Safe element creation ---------- */
+function safeCreateEl(tag, props = {}){ const el = document.createElement(tag); Object.entries(props).forEach(([k,v])=>{ if (k === 'text') el.textContent = v; else if (k === 'html') el.innerHTML = v; else el.setAttribute(k, String(v)); }); return el; }
+
+/* ---------- Render keyboard (без per-button click handler) ---------- */
 function renderKeyboard(){
-  try{
-    if(!keyboardEl) return;
-    keyboardEl.innerHTML='';
+  try {
+    if (!keyboardEl) return;
+    keyboardEl.innerHTML = '';
     const letters = Array.isArray(ALPHABET) && ALPHABET.length ? ALPHABET : ['а','б','в','г','д','е','ё','ж','з','и','й','к','л','м','н','о','п','р','с','т','у','ф','х','ц','ч','ш','щ','ъ','ы','ь','э','ю','я'];
-    letters.forEach(letter=>{
-      const b = document.createElement('button');
-      b.className = 'key';
-      b.type = 'button';
+    letters.forEach(letter => {
+      const b = safeCreateEl('button', { 'class': 'key', 'type': 'button', 'text': letter });
       b.dataset.letter = letter;
-      b.textContent = letter; // явно ставим текст
-      b.style.color = '#0b1220'; // явный цвет
-      // НЕ добавляем per-button click handler — используем делегирование ниже
+      b.style.color = '#0b1220';
+      // НЕ вешаем per-button click (используем делегирование), только dragstart
       b.addEventListener('dragstart', onKeyDragStart);
       keyboardEl.appendChild(b);
     });
-  }catch(e){ safeError('renderKeyboard',e); }
+  } catch(e) { safeError('renderKeyboard', e); }
 }
 
-
+/* ---------- Render slots ---------- */
 function renderSlots(word){
-  try{
-    if(!slotsWrap) return;
+  try {
+    if (!slotsWrap || !answerRow) return;
     const letters = Array.from(String(word));
     slotsState = letters.map(ch => ch === ' ' ? ' ' : '');
     slotsWrap.innerHTML = '';
-    answerRow.innerHTML = ''; // очищаем зеркальный ряд (он скрыт)
-    letters.forEach((ch,i)=>{
-      const slot = document.createElement('div');
-      slot.className = 'slot' + (ch === ' ' ? ' space' : '');
+    answerRow.innerHTML = '';
+    letters.forEach((ch, i) => {
+      const slot = safeCreateEl('div', { 'class': 'slot' + (ch === ' ' ? ' space' : '' ) });
       slot.dataset.pos = i;
       slot.dataset.accepts = ch === ' ' ? 'no' : 'yes';
       slot.setAttribute('role','textbox');
@@ -193,213 +219,322 @@ function renderSlots(word){
       slot.addEventListener('drop', onSlotDrop);
       slot.addEventListener('dragenter', onSlotDragEnter);
       slot.addEventListener('dragleave', onSlotDragLeave);
-      const content = document.createElement('div');
-      content.className = 'slot-content';
+      const content = safeCreateEl('div', { 'class': 'slot-content', 'text': ch === ' ' ? ' ' : '' });
       content.style.pointerEvents = 'none';
       content.style.width = '100%';
       content.style.textAlign = 'center';
-      content.textContent = ch === ' ' ? ' ' : '';
       slot.appendChild(content);
       slotsWrap.appendChild(slot);
+
+      // mirror (hidden)
+      const mirror = slot.cloneNode(true);
+      mirror.className = 'slot';
+      mirror.style.border = 'none';
+      answerRow.appendChild(mirror);
     });
     updateSlotsUI();
     updateHintButtonState();
-  }catch(e){ safeError('renderSlots',e); }
+    clearFocus(); // сброс фокуса при загрузке нового слова
+  } catch(e) { safeError('renderSlots', e); }
 }
 
-/* Input handlers */
-const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
-let selectedKey = null;
-
+/* ---------- Drag handlers for keys/slots ---------- */
 function onKeyDragStart(e){
-  try{
+  try {
     const key = e.currentTarget;
-    e.dataTransfer.setData('text/plain', JSON.stringify({from:'key', letter: key.dataset.letter}));
-    if(e.dataTransfer.setDragImage){
+    e.dataTransfer.setData('text/plain', JSON.stringify({ from: 'key', letter: key.dataset.letter }));
+    if (e.dataTransfer.setDragImage) {
       const crt = key.cloneNode(true);
       crt.style.position='absolute'; crt.style.top='-1000px'; crt.style.left='-1000px';
       document.body.appendChild(crt);
       e.dataTransfer.setDragImage(crt, 18, 18);
       setTimeout(()=> document.body.removeChild(crt), 0);
     }
-  }catch(e){ safeError('onKeyDragStart', e); }
+  } catch(e){ safeError('onKeyDragStart', e); }
 }
 
 function onSlotDragStart(e){
-  try{
+  try {
     const slot = e.currentTarget;
     const pos = Number(slot.dataset.pos);
     const ch = slotsState[pos];
-    if(!ch || ch === ' '){ e.preventDefault(); return; }
-    e.dataTransfer.setData('text/plain', JSON.stringify({from:'slot', pos, letter: ch}));
-  }catch(e){ safeError('onSlotDragStart', e); }
+    if (!ch || ch === ' ') { e.preventDefault(); return; }
+    e.dataTransfer.setData('text/plain', JSON.stringify({ from: 'slot', pos, letter: ch }));
+  } catch(e){ safeError('onSlotDragStart', e); }
 }
-function onSlotDragOver(e){ try{ e.preventDefault(); }catch(e){} }
-function onSlotDragEnter(e){ try{ e.currentTarget.classList.add('dragover'); }catch(e){} }
-function onSlotDragLeave(e){ try{ e.currentTarget.classList.remove('dragover'); }catch(e){} }
+function onSlotDragOver(e){ try { e.preventDefault(); } catch(e){} }
+function onSlotDragEnter(e){ try { e.currentTarget.classList.add('dragover'); } catch(e){} }
+function onSlotDragLeave(e){ try { e.currentTarget.classList.remove('dragover'); } catch(e){} }
 function onSlotDrop(e){
-  try{
+  try {
     e.preventDefault(); e.currentTarget.classList.remove('dragover');
     let payload;
-    try{ payload = JSON.parse(e.dataTransfer.getData('text/plain')); } catch(err){ return; }
+    try { payload = JSON.parse(e.dataTransfer.getData('text/plain')); } catch(err){ return; }
     const pos = Number(e.currentTarget.dataset.pos);
-    if(e.currentTarget.dataset.accepts === 'no') return;
-    if(payload.from === 'key'){ slotsState[pos] = payload.letter; updateSlotsUI(); updateHintButtonState(); }
-    else if(payload.from === 'slot'){ const fromPos = payload.pos; if(fromPos===pos) return; const tmp = slotsState[pos]; slotsState[pos] = slotsState[fromPos]; slotsState[fromPos] = tmp; updateSlotsUI(); updateHintButtonState(); }
-  }catch(e){ safeError('onSlotDrop',e); }
+    if (e.currentTarget.dataset.accepts === 'no') return;
+    if (payload.from === 'key') {
+      placeLetter(payload.letter, pos);
+    } else if (payload.from === 'slot') {
+      const fromPos = payload.pos;
+      if (fromPos === pos) return;
+      const tmp = slotsState[pos];
+      slotsState[pos] = slotsState[fromPos];
+      slotsState[fromPos] = tmp;
+      updateSlotsUI();
+      updateHintButtonState();
+      setFocus(pos);
+    }
+  } catch(e){ safeError('onSlotDrop', e); }
 }
 
+/* ---------- Focus / cursor logic ---------- */
+function setFocus(pos){
+  try {
+    Array.from(slotsWrap.children).forEach(el => el.classList.remove('focused'));
+    if (typeof pos === 'number' && pos >= 0 && pos < slotsState.length && slotsWrap.children[pos]) {
+      focusIndex = pos;
+      slotsWrap.children[pos].classList.add('focused');
+    } else {
+      focusIndex = null;
+    }
+  } catch(e) { safeError('setFocus', e); }
+}
+function clearFocus(){ setFocus(null); }
+
+/* find first editable after position */
+function findFirstEditableAfter(pos){
+  for (let i = pos + 1; i < slotsState.length; i++){
+    if (slotsState[i] === '') return i;
+  }
+  return -1;
+}
+
+/* ---------- placeLetter: главный API для вставки с учётом курсора ---------- */
+function placeLetter(letter, pos = null){
+  try {
+    let target = null;
+    if (typeof pos === 'number') target = pos;
+    else if (typeof focusIndex === 'number') target = focusIndex;
+    else target = slotsState.findIndex(s => s === '');
+
+    if (target === -1 || target === null) return false;
+
+    // если слот — пробел, найдём следующий
+    if (slotsWrap.children[target] && slotsWrap.children[target].dataset.accepts === 'no') {
+      const nxt = findFirstEditableAfter(target);
+      if (nxt !== -1) target = nxt;
+      else return false;
+    }
+
+    slotsState[target] = letter;
+    updateSlotsUI();
+    updateHintButtonState();
+
+    if (letter === ' ') {
+      const nxt = findFirstEditableAfter(target);
+      if (nxt !== -1) setFocus(nxt);
+      else clearFocus();
+    } else {
+      const nextEmpty = slotsState.findIndex((s, i) => i > target && s === '');
+      if (nextEmpty !== -1) setFocus(nextEmpty);
+      else clearFocus();
+    }
+    return true;
+  } catch(e) { safeError('placeLetter', e); return false; }
+}
+
+/* convenience wrapper to keep previous name */
+function placeLetterToFirstEmpty(letter){ return placeLetter(letter, null); }
+
+/* ---------- Slot click handler (обновлён) ---------- */
 function onSlotClick(e){
-  try{
+  try {
     const slotEl = e.currentTarget;
     const pos = Number(slotEl.dataset.pos);
-    if(slotEl.dataset.accepts === 'no') return;
-    if(isTouch && selectedKey){ slotsState[pos] = selectedKey.dataset.letter; selectedKey.classList.remove('selected'); selectedKey = null; updateSlotsUI(); updateHintButtonState(); return; }
-    if(slotsState[pos] && slotsState[pos] !== ' '){ slotsState[pos] = ''; updateSlotsUI(); updateHintButtonState(); }
-  }catch(e){ safeError('onSlotClick',e); }
+    if (slotEl.dataset.accepts === 'no') return;
+    if (isTouch && selectedKey) {
+      placeLetter(selectedKey.dataset.letter, pos);
+      if (selectedKey) { selectedKey.classList.remove('selected'); selectedKey = null; }
+      return;
+    }
+    setFocus(pos);
+  } catch(e){ safeError('onSlotClick', e); }
 }
 
-function placeLetterToFirstEmpty(letter){
-  try{
-    const pos = slotsState.findIndex(s => s === '');
-    if(pos === -1) return;
-    slotsState[pos] = letter;
-    updateSlotsUI(); updateHintButtonState();
-  }catch(e){ safeError('placeLetterToFirstEmpty', e); }
-}
-
-if(keyboardEl){
+/* ---------- Keyboard delegation (единственный click handler) ---------- */
+if (keyboardEl) {
   keyboardEl.addEventListener('click', (e) => {
-    try{
+    try {
       const key = e.target.closest('.key');
-      if(!key || !keyboardEl.contains(key)) return;
+      if (!key || !keyboardEl.contains(key)) return;
       const letter = key.dataset.letter;
-      if(isTouch){
+      if (isTouch) {
         const prev = keyboardEl.querySelector('.key.selected');
-        if(prev && prev !== key) prev.classList.remove('selected');
+        if (prev && prev !== key) prev.classList.remove('selected');
         key.classList.toggle('selected');
         selectedKey = key.classList.contains('selected') ? key : null;
       } else {
-        placeLetterToFirstEmpty(letter);
+        placeLetter(letter, null);
       }
-    }catch(err){ safeError('keyboard delegation', err); }
+    } catch(err){ safeError('keyboard delegation', err); }
   });
 }
 
-/* physical keyboard */
+/* ---------- Physical keyboard handler (обновлён) ---------- */
 document.addEventListener('keydown', (e) => {
-  try{
-    if(e.key === 'Backspace'){ e.preventDefault(); for(let i=slotsState.length-1;i>=0;i--){ if(slotsState[i] && slotsState[i] !== ' '){ slotsState[i] = ''; updateSlotsUI(); updateHintButtonState(); break; } } return; }
-    if(e.key === 'Enter'){ e.preventDefault(); checkAnswer(); return; }
-    if(e.key === ' '){ e.preventDefault(); placeLetterToFirstEmpty(' '); return; }
+  try {
+    if (e.key === 'Backspace') {
+      e.preventDefault();
+      if (typeof focusIndex === 'number') {
+        if (slotsState[focusIndex] && slotsState[focusIndex] !== ' ') {
+          slotsState[focusIndex] = '';
+          updateSlotsUI(); updateHintButtonState(); setFocus(focusIndex);
+          return;
+        } else {
+          for (let i = focusIndex - 1; i >= 0; i--){
+            if (slotsState[i] && slotsState[i] !== ' ') { slotsState[i] = ''; updateSlotsUI(); updateHintButtonState(); setFocus(i); return; }
+          }
+        }
+      }
+      for (let i = slotsState.length - 1; i >= 0; i--){
+        if (slotsState[i] && slotsState[i] !== ' ') {
+          slotsState[i] = '';
+          updateSlotsUI(); updateHintButtonState(); setFocus(i);
+          break;
+        }
+      }
+      return;
+    }
+    if (e.key === 'Enter') { e.preventDefault(); checkAnswer(); return; }
+    if (e.key === ' ') {
+      e.preventDefault();
+      let targetPos = (typeof focusIndex === 'number') ? focusIndex : slotsState.findIndex(s => s === '');
+      if (targetPos !== -1) placeLetter(' ', targetPos);
+      return;
+    }
     const k = e.key.toLowerCase();
-    if(k.length===1 && (ALPHABET.includes(k) || k === 'ё')) placeLetterToFirstEmpty(k);
-  }catch(err){ safeError('physical keyboard', err); }
+    if (k.length === 1 && (ALPHABET.includes(k) || k === 'ё')) {
+      placeLetter(k, null);
+    }
+  } catch(err){ safeError('physical keyboard', err); }
 });
 
-/* UI update */
+/* ---------- UI update ---------- */
 function updateSlotsUI(){
-  try{
-    Array.from(slotsWrap.children).forEach((el,i)=>{
+  try {
+    Array.from(slotsWrap.children).forEach((el, i) => {
       const ch = slotsState[i];
       const content = el.querySelector('.slot-content');
-      if(content) content.textContent = ch === ' ' ? ' ' : (ch || '');
-      if(el.draggable && (!slotsState[i] || slotsState[i] === ' ')){ el.draggable=false; el.removeEventListener('dragstart', onSlotDragStart); }
-      if(!el.draggable && slotsState[i] && slotsState[i] !== ' '){ el.draggable=true; el.addEventListener('dragstart', onSlotDragStart); }
+      if (content) content.textContent = ch === ' ' ? ' ' : (ch || '');
+      if (el.draggable && (!slotsState[i] || slotsState[i] === ' ')) {
+        el.draggable = false; el.removeEventListener('dragstart', onSlotDragStart);
+      }
+      if (!el.draggable && slotsState[i] && slotsState[i] !== ' ') {
+        el.draggable = true; el.addEventListener('dragstart', onSlotDragStart);
+      }
       el.classList.remove('wrong');
     });
-  }catch(e){ safeError('updateSlotsUI', e); }
+    // maintain focused class if focusIndex set
+    if (typeof focusIndex === 'number' && slotsWrap.children[focusIndex]) {
+      Array.from(slotsWrap.children).forEach(el => el.classList.remove('focused'));
+      slotsWrap.children[focusIndex].classList.add('focused');
+    }
+  } catch(e){ safeError('updateSlotsUI', e); }
 }
 
-/* Hint */
+/* ---------- Hint behavior ---------- */
 function revealNextLetter(){
-  try{
+  try {
     const targetPos = slotsState.findIndex(s => s === '');
-    if(targetPos === -1){ updateHintButtonState(); return; }
+    if (targetPos === -1) { updateHintButtonState(); return; }
     const letters = Array.from(current);
     const targetLetter = letters[targetPos];
-    if(!targetLetter){ updateHintButtonState(); return; }
+    if (!targetLetter) { updateHintButtonState(); return; }
     const otherPos = slotsState.findIndex((s, idx) => s && s.toLowerCase() === targetLetter.toLowerCase() && idx !== targetPos);
-    if(otherPos !== -1){ slotsState[otherPos] = ''; slotsState[targetPos] = targetLetter; updateSlotsUI(); updateHintButtonState(); return; }
-    slotsState[targetPos] = targetLetter; updateSlotsUI(); updateHintButtonState();
-  }catch(e){ safeError('revealNextLetter', e); }
+    if (otherPos !== -1) {
+      slotsState[otherPos] = '';
+      slotsState[targetPos] = targetLetter;
+      updateSlotsUI(); updateHintButtonState(); setFocus(targetPos); return;
+    }
+    slotsState[targetPos] = targetLetter;
+    updateSlotsUI(); updateHintButtonState(); setFocus(targetPos);
+  } catch(e){ safeError('revealNextLetter', e); }
 }
-function updateHintButtonState(){ try{ const anyEmpty = Array.isArray(slotsState) && slotsState.some(s => s === ''); if(hintBtn) hintBtn.disabled = !anyEmpty; }catch(e){ safeError('updateHintButtonState',e);} }
+function updateHintButtonState(){ try { const anyEmpty = Array.isArray(slotsState) && slotsState.some(s => s === ''); if (hintBtn) hintBtn.disabled = !anyEmpty; } catch(e){ safeError('updateHintButtonState', e); } }
 
-/* check */
-function getAssembled(){ try{ return slotsState.map(s => s === ' ' ? ' ' : (s || '')).join(''); }catch(e){ safeError('getAssembled', e); return ''; } }
+/* ---------- Check / auto-next ---------- */
+function getAssembled(){ try { return slotsState.map(s => s === ' ' ? ' ' : (s || '')).join(''); } catch(e) { safeError('getAssembled', e); return ''; } }
 function highlightWrongSlots(assembled, target){
-  try{
+  try {
     const aArr = Array.from(assembled);
     const tArr = Array.from(target);
     const maxLen = Math.max(aArr.length, tArr.length);
-    for(let i=0;i<maxLen;i++){
+    for (let i=0;i<maxLen;i++){
       const a = aArr[i] || '';
       const t = tArr[i] || '';
       const slotEl = slotsWrap.querySelector(`.slot[data-pos="${i}"]`);
-      if(!slotEl) continue;
-      if(t === ' ') continue;
-      if(!a || a.toLowerCase() !== t.toLowerCase()) slotEl.classList.add('wrong'); else slotEl.classList.remove('wrong');
+      if (!slotEl) continue;
+      if (t === ' ') continue;
+      if (!a || a.toLowerCase() !== t.toLowerCase()) slotEl.classList.add('wrong'); else slotEl.classList.remove('wrong');
     }
-  }catch(e){ safeError('highlightWrongSlots', e); }
+  } catch(e){ safeError('highlightWrongSlots', e); }
 }
-
 function checkAnswer(){
-  try{
-    if(autoNextTimeoutId){ clearTimeout(autoNextTimeoutId); autoNextTimeoutId = null; }
+  try {
+    if (autoNextTimeoutId) { clearTimeout(autoNextTimeoutId); autoNextTimeoutId = null; }
     const assembled = getAssembled();
     const target = current;
-    if(assembled.toLowerCase() === target.toLowerCase()){
-      if('speechSynthesis' in window) try{ speechSynthesis.cancel(); }catch(e){}
+    if (assembled.toLowerCase() === target.toLowerCase()) {
+      if ('speechSynthesis' in window) try { speechSynthesis.cancel(); } catch(e){}
       showFeedback('Правильно! 🎉', false);
       completed++; idx++; saveProgress(); updateProgress();
-      autoNextTimeoutId = setTimeout(()=>{ autoNextTimeoutId = null; pickNext(); }, AUTO_NEXT_DELAY);
+      autoNextTimeoutId = setTimeout(()=> { autoNextTimeoutId = null; pickNext(); }, AUTO_NEXT_DELAY);
     } else {
-      if(autoNextTimeoutId){ clearTimeout(autoNextTimeoutId); autoNextTimeoutId = null; }
+      if (autoNextTimeoutId) { clearTimeout(autoNextTimeoutId); autoNextTimeoutId = null; }
       showFeedback('Неправильно — попробуйте ещё.', true);
       highlightWrongSlots(assembled, target);
     }
-  }catch(e){ safeError('checkAnswer', e); showFeedback('Ошибка при проверке — смотрите консоль.', true); }
+  } catch(e){ safeError('checkAnswer', e); showFeedback('Ошибка проверки — смотрите консоль.', true); }
 }
 
-/* pick next */
+/* ---------- Pick next word ---------- */
 function pickNext(){
-  try{
-    if(autoNextTimeoutId){ clearTimeout(autoNextTimeoutId); autoNextTimeoutId = null; }
-    if(!pool || pool.length === 0) initPool();
-    if(idx >= pool.length){ alert('Вы прошли все слова! Начинаем заново.'); initPool(); }
+  try {
+    if (autoNextTimeoutId) { clearTimeout(autoNextTimeoutId); autoNextTimeoutId = null; }
+    if (!pool || pool.length === 0) initPool();
+    if (idx >= pool.length) { alert('Вы прошли все слова! Начинаем заново.'); initPool(); }
     current = pool[idx] || '';
     renderSlots(current);
     showFeedback('', false);
     waitVoices(1000).then(()=> setTimeout(()=> speakText(current, 1.0), 150)).catch(()=>{});
     updateProgress();
-  }catch(e){ safeError('pickNext', e); showFeedback('Ошибка при загрузке слова — смотрите консоль.', true); }
+  } catch(e){ safeError('pickNext', e); showFeedback('Ошибка при загрузке слова — смотрите консоль.', true); }
 }
 
-/* Button wiring */
-try{
-  const playBtn = document.getElementById('playBtn'); if(playBtn) playBtn.addEventListener('click', ()=> speakText(current, 1.0));
-  const slowBtn = document.getElementById('slowBtn'); if(slowBtn) slowBtn.addEventListener('click', ()=> speakText(current, 0.5));
-  if(hintBtn) hintBtn.addEventListener('click', revealNextLetter);
-  const shuffleBtn = document.getElementById('shuffleBtn'); if(shuffleBtn) shuffleBtn.addEventListener('click', ()=>{ pool.sort(()=>Math.random()-0.5); saveProgress(); showFeedback('Слова перемешаны.', false); });
-  const submitBtn = document.getElementById('submitBtn'); if(submitBtn) submitBtn.addEventListener('click', checkAnswer);
-  const nextBtn = document.getElementById('nextBtn'); if(nextBtn) nextBtn.addEventListener('click', ()=>{ if(autoNextTimeoutId){ clearTimeout(autoNextTimeoutId); autoNextTimeoutId = null; } idx++; pickNext(); });
-}catch(e){ safeError('button wiring', e); }
+/* ---------- Buttons wiring ---------- */
+try {
+  const playBtn = document.getElementById('playBtn'); if (playBtn) playBtn.addEventListener('click', ()=> speakText(current, 1.0));
+  const slowBtn = document.getElementById('slowBtn'); if (slowBtn) slowBtn.addEventListener('click', ()=> speakText(current, 0.8));
+  if (hintBtn) hintBtn.addEventListener('click', revealNextLetter);
+  const shuffleBtn = document.getElementById('shuffleBtn'); if (shuffleBtn) shuffleBtn.addEventListener('click', ()=> { pool.sort(()=>Math.random()-0.5); saveProgress(); showFeedback('Слова перемешаны.', false); });
+  const submitBtn = document.getElementById('submitBtn'); if (submitBtn) submitBtn.addEventListener('click', checkAnswer);
+  const nextBtn = document.getElementById('nextBtn'); if (nextBtn) nextBtn.addEventListener('click', ()=> { if (autoNextTimeoutId) { clearTimeout(autoNextTimeoutId); autoNextTimeoutId = null; } idx++; pickNext(); });
+} catch(e){ safeError('button wiring', e); }
 
-/* Init */
+/* ---------- Init ---------- */
 function safeInit(){
-  try{
-    if(!loadProgress()) initPool();
+  try {
+    if (!loadProgress()) initPool();
     renderKeyboard();
     pickNext();
     updateProgress();
     showFeedback('', false);
-  }catch(e){ safeError('safeInit', e); showFeedback('Инициализация не завершена — смотрите консоль.', true); }
+  } catch(e) { safeError('safeInit', e); showFeedback('Инициализация не завершена — смотрите консоль.', true); }
 }
 safeInit();
 
 /* cleanup */
-window.addEventListener('beforeunload', ()=>{ try{ if(autoNextTimeoutId) clearTimeout(autoNextTimeoutId); }catch(e){} });
+window.addEventListener('beforeunload', ()=> { try { if (autoNextTimeoutId) clearTimeout(autoNextTimeoutId); } catch(e){} });
 
 </script>
 </body>
