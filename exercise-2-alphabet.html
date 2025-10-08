@@ -379,7 +379,7 @@ function pickNext(){
 /* Button wiring */
 try{
   const playBtn = document.getElementById('playBtn'); if(playBtn) playBtn.addEventListener('click', ()=> speakText(current, 1.0));
-  const slowBtn = document.getElementById('slowBtn'); if(slowBtn) slowBtn.addEventListener('click', ()=> speakText(current, 0.8));
+  const slowBtn = document.getElementById('slowBtn'); if(slowBtn) slowBtn.addEventListener('click', ()=> speakText(current, 0.5));
   if(hintBtn) hintBtn.addEventListener('click', revealNextLetter);
   const shuffleBtn = document.getElementById('shuffleBtn'); if(shuffleBtn) shuffleBtn.addEventListener('click', ()=>{ pool.sort(()=>Math.random()-0.5); saveProgress(); showFeedback('Слова перемешаны.', false); });
   const submitBtn = document.getElementById('submitBtn'); if(submitBtn) submitBtn.addEventListener('click', checkAnswer);
