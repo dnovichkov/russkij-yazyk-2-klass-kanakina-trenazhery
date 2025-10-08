@@ -3,29 +3,40 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Уровень 1 — собрать из букв</title>
+<title>Уровень 1 — собрать слово из букв</title>
 <style>
-  :root{--bg:#fff;--card:#fff;--accent:#0f62fe;--muted:#6b7280}
-  body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;background:#f3f4f6;margin:0;color:#0b1220}
-  header{padding:18px;text-align:center;background:white;box-shadow:0 1px 0 rgba(0,0,0,0.04)}
+  :root{
+    --bg:#f3f4f4; --card:#fff; --accent:#0f62fe; --muted:#6b7280;
+    --wrong:#ff4d4f;
+  }
+  body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;background:var(--bg);margin:0;color:#0b1220}
+  header{padding:18px;text-align:center;background:white;box-shadow:0 1px 0 rgba(0,0,0,0.04);display:flex;align-items:center;justify-content:space-between;gap:12px}
+  header h1{margin:0;font-size:1.05rem}
+  header .home{margin-left:auto;text-decoration:none;background:var(--accent);color:#fff;padding:8px 12px;border-radius:10px}
   main{max-width:920px;margin:18px auto;padding:16px}
   .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   button, .btn{background:var(--accent);color:white;border:none;padding:10px;border-radius:10px;cursor:pointer}
   .btn.alt{background:#6b7280}
-  .card{background:white;padding:16px;border-radius:12px;box-shadow:0 6px 20px rgba(2,6,23,0.04);margin-bottom:12px}
+  .card{background:var(--card);padding:16px;border-radius:12px;box-shadow:0 6px 20px rgba(2,6,23,0.04);margin-bottom:12px}
   .scramble{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
   .tile{min-width:44px;min-height:44px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:#f8fafc;border:1px solid #e6eef8;font-size:20px;cursor:pointer;user-select:none}
+  .tile.hidden{visibility:hidden}
   .slots{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
-  .slot{min-width:44px;min-height:44px;border-radius:8px;background:#fff;border:2px dashed #e6eef8;display:flex;align-items:center;justify-content:center;font-size:20px}
+  .slot{min-width:44px;min-height:44px;border-radius:8px;background:#fff;border:2px dashed #e6eef8;display:flex;align-items:center;justify-content:center;font-size:20px;position:relative}
   .slot.space{background:transparent;border:0;min-width:30px}
+  .slot.wrong{box-shadow:0 0 0 3px rgba(255,77,79,0.12); border-color:var(--wrong)}
   .status{margin-top:12px;color:var(--muted)}
   .hint{background:#f9fafb;color:#374151;border-radius:8px;padding:6px}
+  .drop-indicator{position:absolute;inset:0;border-radius:8px;pointer-events:none}
+  .small{font-size:13px;color:var(--muted)}
 </style>
 </head>
 <body>
 <header>
   <h1>Уровень 1 — собрать слово из букв</h1>
-  <div style="color:var(--muted)">Кликните ▶ чтобы услышать слово. Клик по букве — она перейдёт в следующее пустое поле. Клик по заполненному слоту — букву вернуть.</div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <a class="home" href="index.html">🏠 Домой</a>
+  </div>
 </header>
 
 <main>
@@ -51,7 +62,7 @@
       <div class="card">
         <div><strong>Буквы:</strong></div>
         <div id="bank" class="scramble" aria-live="polite"></div>
-        <div style="margin-top:8px"><small class="hint">Клик по букве добавляет её в следующее пустое поле. Чтобы убрать — кликните по уже вставленной букве.</small></div>
+        <div style="margin-top:8px"><small class="hint">Клик или перетащите букву в нужную ячейку. Чтобы вернуть букву — кликните по заполненной ячейке или перетащите её обратно.</small></div>
       </div>
 
       <div class="card">
@@ -66,16 +77,18 @@
   <div class="card">
     <h3>Как это работает</h3>
     <ol>
-      <li>Приложение берёт случайное слово из списка слов (ниже)</li>
-      <li>Буквы перемешиваются и отображаются в виде плиток</li>
-      <li>Ученик кликает по плиткам — буквы переходят в слоты</li>
-      <li>Проверка — нажать «Проверить». Подсказки раскрывают первую букву.</li>
+      <li>Слово произносится автоматически при загрузке страницы.</li>
+      <li>Добавляйте буквы кликом или перетаскиванием в нужные ячейки.</li>
+      <li>Неправильные буквы будут подсвечены красным после проверки.</li>
+      <li>При правильном ответе — автоматический переход к следующему слову.</li>
     </ol>
   </div>
 </main>
 
 <script>
-/* --- Список слов — используем именно ваш список (очищен от служебных скобок) --- */
+/* ============================
+   Список слов
+   ============================ */
 const WORDS = [
 "алфавит","апрель","берёза","быстро","вдруг","весело","ветер","воробей","ворона",
 "город","девочка","дежурный","декабрь","деревня","дорога","до свидания",
@@ -90,183 +103,67 @@ const WORDS = [
 "яблоко","яблоня","ягода","язык","январь"
 ];
 
-/* --- Основная логика --- */
-let pool = [];        // список слов, по которому идёт проход
+/* ============================
+   Состояние
+   ============================ */
+let pool = [];
 let idx = 0;
 let current = "";
-let slotsState = [];  // текущее заполнение полей
+let slotsState = [];
 const progressEl = document.getElementById('progress');
 const bankEl = document.getElementById('bank');
 const slotsEl = document.getElementById('slots');
 const feedback = document.getElementById('feedback');
 
+/* ============================
+   Инициализация пула и прогресс
+   ============================ */
 function initPool() {
-  pool = [...WORDS]; // копия
-  // можно перемешать порядок
+  pool = [...WORDS];
   pool.sort(()=>Math.random()-0.5);
   idx = 0;
   updateProgress();
 }
 function updateProgress(){ progressEl.textContent = `${idx} / ${pool.length}` }
 
-function normalizeForSlots(word) {
-  // будем сохранять пробелы как ' ' — и отображать слоты-же
-  return word;
-}
-
-function prepareWord(w) {
-  current = w;
-  // формируем буквы - учитываем пробелы отдельно
-  const letters = Array.from(w);
-  // tiles contain only non-space letters
-  const tiles = letters.filter(ch => ch !== ' ');
-  // shuffle tiles
-  for (let i = tiles.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random()*(i+1));
-    [tiles[i], tiles[j]] = [tiles[j], tiles[i]];
-  }
-  renderBank(tiles);
-  renderSlots(letters);
-  feedback.textContent = '';
-}
-
-function renderBank(tiles) {
-  bankEl.innerHTML = '';
-  tiles.forEach((ch, i) => {
-    const btn = document.createElement('div');
-    btn.className = 'tile';
-    btn.textContent = ch;
-    btn.dataset.letter = ch;
-    btn.dataset.index = i;
-    btn.addEventListener('click', onBankClick);
-    bankEl.appendChild(btn);
-  });
-}
-
-function renderSlots(letters) {
-  slotsState = letters.map(ch => (ch === ' ' ? ' ' : '')); // '' empty, ' ' for space
-  slotsEl.innerHTML = '';
-  letters.forEach((ch, i) => {
-    const s = document.createElement('div');
-    s.className = 'slot' + (ch===' ' ? ' space' : '');
-    s.dataset.pos = i;
-    s.textContent = ch===' ' ? ' ' : '';
-    s.addEventListener('click', onSlotClick);
-    slotsEl.appendChild(s);
-  });
-}
-
-/* --- Взаимодействие --- */
-function onBankClick(e){
-  const letter = e.currentTarget.dataset.letter;
-  // найти первый пустой слот (не считаем пробелы)
-  const pos = slotsState.findIndex(v => v === '');
-  if (pos === -1) return;
-  // вставить
-  slotsState[pos] = letter;
-  updateSlotsUI();
-  // удалить/скрыть плитку в банке — отмечаем data-used
-  e.currentTarget.style.visibility = 'hidden';
-}
-
-function onSlotClick(e){
-  const pos = Number(e.currentTarget.dataset.pos);
-  const val = slotsState[pos];
-  if (!val || val === ' ') return; // если пусто или пробел — ничего
-  // вернуть букву в банк (первую скрытую плитку с этой буквой)
-  const tiles = Array.from(bankEl.children);
-  const found = tiles.find(t => t.dataset.letter === val && t.style.visibility !== 'visible' ? false : true /* keep */);
-  // better: find tile that is visible and not used—we hid used ones; we need to show first hidden tile with letter
-  const hiddenTile = tiles.find(t => t.dataset.letter === val && t.style.visibility === 'hidden');
-  if (hiddenTile) hiddenTile.style.visibility = 'visible';
-  slotsState[pos] = '';
-  updateSlotsUI();
-}
-
-function updateSlotsUI(){
-  Array.from(slotsEl.children).forEach((el, i) => {
-    el.textContent = slotsState[i] === ' ' ? ' ' : (slotsState[i] || '');
-  });
-}
-
-function getAssembled(){
-  return slotsState.join('');
-}
-
-/* --- Проверка --- */
-function checkAnswer(){
-  const assembled = getAssembled();
-  const target = current;
-  // сравниваем без учёта регистра
-  if (assembled.toLowerCase() === target.toLowerCase()){
-    feedback.style.color = 'green';
-    feedback.textContent = 'Правильно! 🎉';
-    // увеличить счётчик
-    idx++;
-    setTimeout(()=> {
-      saveProgress();
-    }, 200);
-  } else {
-    feedback.style.color = 'crimson';
-    feedback.textContent = 'Неправильно. Попробуйте ещё или нажмите подсказку.';
-  }
-  updateProgress();
-}
-
-function nextWord(){
-  if (idx >= pool.length) {
-    // завершили
-    alert('Вы прошли все слова! Можно начать заново.');
-    initPool();
-    pickNext();
-    return;
-  }
-  pickNext();
-  updateProgress();
-}
-
-/* --- Подсказки и диктовка --- */
-function revealFirst(){
-  // найдем первую букву, стоящую в исходном слове (пропуская пробелы)
-  const letters = Array.from(current);
-  const firstLetter = letters.find(ch => ch !== ' ');
-  if (!firstLetter) return;
-  // поставить её в первый пустой слот, и скрыть соответствующую плитку в банке
-  const pos = slotsState.findIndex(v => v === '');
-  if (pos === -1) return;
-  // найдем плитку с этой буквой, покажем скрытую
-  const tile = Array.from(bankEl.children).find(t => t.dataset.letter === firstLetter && t.style.visibility !== 'hidden');
-  // If tile visible used? We'll search hidden one to hide it
-  const hiddenTile = Array.from(bankEl.children).find(t => t.dataset.letter === firstLetter && t.style.visibility !== 'visible');
-  // Find visible and hide it.
-  const visibleTile = Array.from(bankEl.children).find(t => t.dataset.letter === firstLetter && t.style.visibility !== 'hidden');
-  if (visibleTile) visibleTile.style.visibility = 'hidden';
-  slotsState[pos] = firstLetter;
-  updateSlotsUI();
-}
-
-/* --- TTS (Web Speech) --- */
+/* ============================
+   TTS: надёжное ожидание голосов
+   ============================ */
 let voices = [];
-function loadVoices(){
-  voices = speechSynthesis.getVoices() || [];
-  // иногда голоса загружаются позже — на событии onvoiceschanged
-}
+function loadVoices(){ voices = speechSynthesis.getVoices() || []; }
 speechSynthesis.onvoiceschanged = loadVoices;
 loadVoices();
 
+function waitVoices(timeout = 1000) {
+  return new Promise(resolve => {
+    loadVoices();
+    if ((speechSynthesis.getVoices() || []).some(v => v.lang && v.lang.toLowerCase().startsWith('ru'))) {
+      resolve(true);
+      return;
+    }
+    // пробуем ждать событие voiceschanged / краткие интервалы
+    let waited = 0;
+    const step = 150;
+    const iv = setInterval(()=>{
+      loadVoices();
+      waited += step;
+      if ((speechSynthesis.getVoices() || []).some(v => v.lang && v.lang.toLowerCase().startsWith('ru')) || waited >= timeout) {
+        clearInterval(iv);
+        resolve(true);
+      }
+    }, step);
+  });
+}
+
 function chooseRussianVoice(){
-  if (!voices || voices.length===0) loadVoices();
-  // выбрать первый с lang начинающимся на 'ru'
-  let v = voices.find(x => x.lang && x.lang.toLowerCase().startsWith('ru'));
-  if (!v) v = voices.find(x => /russian/i.test(x.name));
+  const vs = speechSynthesis.getVoices() || [];
+  let v = vs.find(x => x.lang && x.lang.toLowerCase().startsWith('ru'));
+  if (!v) v = vs.find(x => /russian/i.test(x.name));
   return v || null;
 }
 
 function speakText(text, rate=0.95){
-  if (!('speechSynthesis' in window)) {
-    alert('TTS (speechSynthesis) не поддерживается в этом браузере.');
-    return;
-  }
+  if (!('speechSynthesis' in window)) return;
   const utter = new SpeechSynthesisUtterance(text);
   const v = chooseRussianVoice();
   if (v) utter.voice = v;
@@ -275,32 +172,244 @@ function speakText(text, rate=0.95){
   speechSynthesis.speak(utter);
 }
 
-/* --- Навигация по словам --- */
-function pickNext(){
-  // выбираем текущее слово — следующий в pool, но если достигли конца — перезапустить
-  if (pool.length === 0) initPool();
-  if (idx >= pool.length) idx = 0; // перезапуск
-  const w = pool[idx];
-  prepareWord(w);
-  updateProgress();
+/* ============================
+   Подготовка слова и рендер
+   ============================ */
+function prepareWord(w) {
+  current = w;
+  const letters = Array.from(w);
+  const tiles = letters.filter(ch => ch !== ' ');
+  const timestamp = Date.now();
+  const tilesWithId = tiles.map((ch,i)=> ({ch, id:`tile-${i}-${timestamp}-${Math.floor(Math.random()*10000)}`} ));
+  for (let i = tilesWithId.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random()*(i+1));
+    [tilesWithId[i], tilesWithId[j]] = [tilesWithId[j], tilesWithId[i]];
+  }
+  renderBank(tilesWithId);
+  renderSlots(letters);
+  feedback.textContent = '';
+  // ждать русские голоса (до 1с) и затем произнести слово автоматически
+  waitVoices(1000).then(()=> {
+    // небольшой таймаут чтобы браузер успел разблокировать TTS в некоторых случаях
+    setTimeout(()=> speakText(current, 0.95), 150);
+  });
 }
 
-document.getElementById('playBtn').addEventListener('click', ()=> speakText(current));
-document.getElementById('replayBtn').addEventListener('click', ()=> speakText(current));
-document.getElementById('hintBtn').addEventListener('click', revealFirst);
-document.getElementById('shuffleBtn').addEventListener('click', ()=> { // просто перемешать плитки
-  const tiles = Array.from(bankEl.children).map(t => t.dataset.letter).sort(()=>Math.random()-0.5);
-  renderBank(tiles);
-});
-document.getElementById('checkBtn').addEventListener('click', checkAnswer);
-document.getElementById('nextBtn').addEventListener('click', ()=> { idx++; nextWord(); });
+function renderBank(tiles) {
+  bankEl.innerHTML = '';
+  tiles.forEach(tile => {
+    const btn = document.createElement('div');
+    btn.className = 'tile';
+    btn.textContent = tile.ch;
+    btn.dataset.letter = tile.ch;
+    btn.dataset.id = tile.id;
+    btn.draggable = true;
+    btn.addEventListener('click', onBankClick);
+    btn.addEventListener('dragstart', onTileDragStart);
+    bankEl.appendChild(btn);
+  });
+}
 
-/* --- localStorage для прогресса --- */
+function renderSlots(letters){
+  slotsState = letters.map(ch => (ch===' ' ? {ch:' ', tileId:null} : {ch:'', tileId:null}));
+  slotsEl.innerHTML = '';
+  letters.forEach((ch,i) => {
+    const s = document.createElement('div');
+    s.className = 'slot' + (ch===' ' ? ' space' : '');
+    s.dataset.pos = i;
+    s.dataset.accepts = ch===' ' ? 'no' : 'yes';
+    s.addEventListener('click', onSlotClick);
+    s.addEventListener('dragover', onSlotDragOver);
+    s.addEventListener('drop', onSlotDrop);
+    s.addEventListener('dragenter', onSlotDragEnter);
+    s.addEventListener('dragleave', onSlotDragLeave);
+    s.setAttribute('aria-label', ch===' ' ? 'пробел' : `слот ${i+1}`);
+    const content = document.createElement('div');
+    content.className = 'slot-content';
+    content.style.pointerEvents = 'none';
+    content.textContent = ch===' ' ? ' ' : '';
+    s.appendChild(content);
+    slotsEl.appendChild(s);
+  });
+  updateSlotsUI();
+}
+
+/* ============================
+   Взаимодействие: клик и drag&drop
+   ============================ */
+function onBankClick(e){
+  const tileEl = e.currentTarget;
+  const tileId = tileEl.dataset.id;
+  const letter = tileEl.dataset.letter;
+  const pos = slotsState.findIndex(v => v.ch === '');
+  if (pos === -1) return;
+  placeTileToSlot(tileId, letter, pos);
+}
+
+function onTileDragStart(e){
+  const tileEl = e.currentTarget;
+  e.dataTransfer.setData('text/plain', JSON.stringify({
+    from: 'bank',
+    id: tileEl.dataset.id,
+    letter: tileEl.dataset.letter
+  }));
+  if (e.dataTransfer.setDragImage) {
+    const crt = tileEl.cloneNode(true);
+    crt.style.position='absolute'; crt.style.top='-1000px'; crt.style.left='-1000px';
+    document.body.appendChild(crt);
+    e.dataTransfer.setDragImage(crt, 20, 20);
+    setTimeout(()=> document.body.removeChild(crt), 0);
+  }
+}
+
+function onSlotDragStart(e){
+  const slot = e.currentTarget;
+  const pos = Number(slot.dataset.pos);
+  const info = slotsState[pos];
+  if (!info || !info.tileId) { e.preventDefault(); return; }
+  e.dataTransfer.setData('text/plain', JSON.stringify({
+    from: 'slot',
+    id: info.tileId,
+    letter: info.ch,
+    pos
+  }));
+}
+
+function onSlotDragOver(e){ e.preventDefault(); }
+function onSlotDragEnter(e){ e.currentTarget.classList.add('dragover'); }
+function onSlotDragLeave(e){ e.currentTarget.classList.remove('dragover'); }
+
+function onSlotDrop(e){
+  e.preventDefault();
+  e.currentTarget.classList.remove('dragover');
+  const payload = JSON.parse(e.dataTransfer.getData('text/plain'));
+  const pos = Number(e.currentTarget.dataset.pos);
+  if (e.currentTarget.dataset.accepts === 'no') return;
+  if (payload.from === 'bank'){
+    if (slotsState[pos].tileId){
+      showTileById(slotsState[pos].tileId);
+    }
+    placeTileToSlot(payload.id, payload.letter, pos);
+  } else if (payload.from === 'slot'){
+    const fromPos = payload.pos;
+    if (fromPos === pos) return;
+    const targetTile = slotsState[pos];
+    const fromTile = slotsState[fromPos];
+    slotsState[pos] = { ch: fromTile.ch, tileId: fromTile.tileId };
+    slotsState[fromPos] = { ch: targetTile.ch || '', tileId: targetTile.tileId || null };
+    updateSlotsUI();
+  }
+}
+
+function placeTileToSlot(tileId, letter, pos){
+  const tileEl = findTileElById(tileId);
+  if (!tileEl) return;
+  tileEl.classList.add('hidden');
+  if (slotsState[pos].tileId){
+    showTileById(slotsState[pos].tileId);
+  }
+  slotsState[pos] = { ch: letter, tileId };
+  const slotEl = slotsEl.querySelector(`.slot[data-pos="${pos}"]`);
+  if (slotEl && !slotEl.draggable){
+    slotEl.draggable = true;
+    slotEl.addEventListener('dragstart', onSlotDragStart);
+  }
+  updateSlotsUI();
+}
+
+function findTileElById(id){
+  return Array.from(bankEl.children).find(c => c.dataset.id === id);
+}
+
+function showTileById(id){
+  const t = findTileElById(id);
+  if (t) t.classList.remove('hidden');
+}
+
+function onSlotClick(e){
+  const pos = Number(e.currentTarget.dataset.pos);
+  if (!slotsState[pos] || !slotsState[pos].tileId) return;
+  const tileId = slotsState[pos].tileId;
+  showTileById(tileId);
+  slotsState[pos] = { ch:'', tileId:null };
+  updateSlotsUI();
+}
+
+function updateSlotsUI(){
+  Array.from(slotsEl.children).forEach((el, i) => {
+    const st = slotsState[i];
+    const content = el.querySelector('.slot-content');
+    if (!content) return;
+    content.textContent = st.ch === ' ' ? ' ' : (st.ch || '');
+    el.classList.remove('wrong');
+  });
+}
+
+/* ============================
+   Проверка и подсветка ошибок
+   ============================ */
+function getAssembled(){
+  return slotsState.map(s => s.ch === ' ' ? ' ' : (s.ch || '')).join('');
+}
+
+function checkAnswer(){
+  const assembled = getAssembled();
+  const target = current;
+  if (assembled.toLowerCase() === target.toLowerCase()){
+    feedback.style.color = 'green';
+    feedback.textContent = 'Правильно! 🎉';
+    idx++;
+    saveProgress();
+    setTimeout(()=> {
+      nextWord();
+    }, 600);
+  } else {
+    feedback.style.color = 'crimson';
+    feedback.textContent = 'Неправильно. Подсвечу ошибочные буквы.';
+    highlightWrongSlots(assembled, target);
+  }
+}
+
+function highlightWrongSlots(assembled, target){
+  const assembledArr = Array.from(assembled);
+  const targetArr = Array.from(target);
+  const maxLen = Math.max(assembledArr.length, targetArr.length);
+  for (let i=0;i<maxLen;i++){
+    const a = assembledArr[i] || '';
+    const t = targetArr[i] || '';
+    const slotEl = slotsEl.querySelector(`.slot[data-pos="${i}"]`);
+    if (!slotEl) continue;
+    if (t === ' ') continue;
+    if (!a || a.toLowerCase() !== t.toLowerCase()){
+      slotEl.classList.add('wrong');
+    } else {
+      slotEl.classList.remove('wrong');
+    }
+  }
+}
+
+/* ============================
+   Подсказка
+   ============================ */
+function revealFirst(){
+  const letters = Array.from(current);
+  const firstLetter = letters.find(ch => ch !== ' ');
+  if (!firstLetter) return;
+  const pos = slotsState.findIndex(v => v.ch === '');
+  if (pos === -1) return;
+  const tileEl = Array.from(bankEl.children).find(t => t.dataset.letter === firstLetter && !t.classList.contains('hidden'));
+  if (!tileEl) return;
+  placeTileToSlot(tileEl.dataset.id, firstLetter, pos);
+}
+
+/* ============================
+   localStorage
+   ============================ */
 function saveProgress(){
-  localStorage.setItem('russian_spelling_progress', JSON.stringify({pool, idx}));
+  localStorage.setItem('russian_scramble_progress', JSON.stringify({pool, idx}));
 }
 function loadProgress(){
-  const raw = localStorage.getItem('russian_spelling_progress');
+  const raw = localStorage.getItem('russian_scramble_progress');
   if (!raw) return false;
   try {
     const obj = JSON.parse(raw);
@@ -309,11 +418,55 @@ function loadProgress(){
       idx = obj.idx;
       return true;
     }
-  } catch(e){}
+  }catch(e){}
   return false;
 }
 
-/* --- init --- */
+/* ============================
+   Навигация по словам
+   ============================ */
+function pickNext(){
+  if (!pool || pool.length === 0) initPool();
+  if (idx >= pool.length){
+    alert('Вы прошли все слова! Начинаем заново.');
+    initPool();
+  }
+  const w = pool[idx];
+  prepareWord(w);
+  updateProgress();
+}
+
+document.getElementById('playBtn').addEventListener('click', ()=> speakText(current));
+document.getElementById('replayBtn').addEventListener('click', ()=> speakText(current));
+document.getElementById('hintBtn').addEventListener('click', revealFirst);
+document.getElementById('shuffleBtn').addEventListener('click', ()=> {
+  const tiles = Array.from(bankEl.children).map(t => ({id:t.dataset.id, ch:t.dataset.letter}));
+  tiles.sort(()=>Math.random()-0.5);
+  renderBank(tiles);
+});
+document.getElementById('checkBtn').addEventListener('click', checkAnswer);
+document.getElementById('nextBtn').addEventListener('click', ()=> { idx++; pickNext(); });
+
+/* drag->bank (возврат) */
+bankEl.addEventListener('dragover', e => e.preventDefault());
+bankEl.addEventListener('drop', e => {
+  e.preventDefault();
+  try {
+    const payload = JSON.parse(e.dataTransfer.getData('text/plain'));
+    if (payload.from === 'slot'){
+      showTileById(payload.id);
+      const pos = payload.pos;
+      if (typeof pos === 'number') {
+        slotsState[pos] = { ch:'', tileId:null };
+        updateSlotsUI();
+      }
+    }
+  } catch(err){}
+});
+
+/* ============================
+   Инициализация страницы
+   ============================ */
 if (!loadProgress()) initPool();
 pickNext();
 updateProgress();
