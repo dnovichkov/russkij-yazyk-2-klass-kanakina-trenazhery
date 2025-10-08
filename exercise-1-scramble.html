@@ -45,7 +45,6 @@
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
       <div class="controls">
         <button id="playBtn">▶ Диктовка</button>
-        <button id="replayBtn" class="btn alt">⟳ Повтор</button>
         <button id="hintBtn" class="btn alt">💡 Подсказка (следующая буква)</button>
         <button id="shuffleBtn" class="btn alt">🔀 Перемешать</button>
       </div>
@@ -509,7 +508,7 @@ function pickNext(){
 
 /* Обработчики кнопок */
 document.getElementById('playBtn').addEventListener('click', ()=> speakText(current));
-document.getElementById('replayBtn').addEventListener('click', ()=> speakText(current));
+// removed replayBtn handler since button was removed
 hintBtn.addEventListener('click', revealNextLetter);
 document.getElementById('shuffleBtn').addEventListener('click', ()=> {
   const tiles = Array.from(bankEl.children).map(t => ({id:t.dataset.id, ch:t.dataset.letter}));
