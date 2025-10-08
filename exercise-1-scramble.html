@@ -78,9 +78,10 @@
   <div class="card">
     <h3>Как это работает</h3>
     <ol>
-      <li>Подсказка открывает первую **пустую** букву по порядку.</li>
+      <li>Подсказка открывает первую <strong>пустую</strong> букву по порядку.</li>
       <li>Если нужной буквы нет в банке, но она есть в другом слоте — она будет перемещена на своё место.</li>
       <li>Когда все буквы открыты — подсказка отключается.</li>
+      <li>Прогресс увеличивается только при правильном ответе.</li>
     </ol>
   </div>
 </main>
@@ -111,9 +112,12 @@ const WORDS = [
 
 /* ============================
    Состояние
+   - idx: индекс текущего слова в pool (используется для выбора следующего)
+   - completed: сколько слов успешно собрано (отображается в прогрессе)
    ============================ */
 let pool = [];
 let idx = 0;
+let completed = 0;
 let current = "";
 let slotsState = [];
 const progressEl = document.getElementById('progress');
@@ -129,9 +133,10 @@ function initPool() {
   pool = [...WORDS];
   pool.sort(()=>Math.random()-0.5);
   idx = 0;
+  completed = 0;
   updateProgress();
 }
-function updateProgress(){ progressEl.textContent = `${idx} / ${pool.length}` }
+function updateProgress(){ progressEl.textContent = `${completed} / ${pool.length}` }
 
 /* ============================
    TTS
@@ -209,10 +214,11 @@ function renderBank(tiles) {
     btn.dataset.letter = tile.ch;
     btn.dataset.id = tile.id;
     btn.draggable = true;
-    btn.addEventListener('click', onBankClick);
+    // удалил per-item click handler — используем делегирование на bankEl
     btn.addEventListener('dragstart', onTileDragStart);
     bankEl.appendChild(btn);
   });
+  // (делегированный клик обработчик установлен один раз при инициализации ниже)
 }
 
 function renderSlots(letters){
@@ -240,18 +246,24 @@ function renderSlots(letters){
 }
 
 /* ============================
-   Взаимодействие: клик и drag&drop
+   Делегированный клик по букве (robust)
    ============================ */
-function onBankClick(e){
-  const tileEl = e.currentTarget;
+bankEl.addEventListener('click', function onBankContainerClick(e){
+  const tileEl = e.target.closest('.tile');
+  if (!tileEl || !bankEl.contains(tileEl)) return;
+  // если плитка скрыта (используется), не реагируем
+  if (tileEl.classList.contains('hidden')) return;
   const tileId = tileEl.dataset.id;
   const letter = tileEl.dataset.letter;
   const pos = slotsState.findIndex(v => v.ch === '');
   if (pos === -1) return;
   placeTileToSlot(tileId, letter, pos);
   updateHintButtonState();
-}
+});
 
+/* ============================
+   Взаимодействие: drag&drop (tile dragstart, slot dragstart и т.д.)
+   ============================ */
 function onTileDragStart(e){
   const tileEl = e.currentTarget;
   e.dataTransfer.setData('text/plain', JSON.stringify({
@@ -288,7 +300,8 @@ function onSlotDragLeave(e){ e.currentTarget.classList.remove('dragover'); }
 function onSlotDrop(e){
   e.preventDefault();
   e.currentTarget.classList.remove('dragover');
-  const payload = JSON.parse(e.dataTransfer.getData('text/plain'));
+  let payload;
+  try { payload = JSON.parse(e.dataTransfer.getData('text/plain')); } catch(err){ return; }
   const pos = Number(e.currentTarget.dataset.pos);
   if (e.currentTarget.dataset.accepts === 'no') return;
   if (payload.from === 'bank'){
@@ -359,17 +372,15 @@ function updateSlotsUI(){
    Подсказка: открыть первую НЕЗАПОЛНЕННУЮ букву
    ============================ */
 function revealNextLetter(){
-  // 1) найти первую пустую позицию (skip spaces)
   const targetPos = slotsState.findIndex(s => s.ch === '');
   if (targetPos === -1) {
-    // ничего не раскрывать, деактивируем кнопку
     updateHintButtonState();
     return;
   }
-  const targetLetter = Array.from(current)[targetPos];
+  const letters = Array.from(current);
+  const targetLetter = letters[targetPos];
   if (!targetLetter) { updateHintButtonState(); return; }
 
-  // 2) попытаться найти видимую плитку в банке с этой буквой
   const visibleTile = Array.from(bankEl.children).find(t => t.dataset.letter === targetLetter && !t.classList.contains('hidden'));
   if (visibleTile) {
     placeTileToSlot(visibleTile.dataset.id, targetLetter, targetPos);
@@ -377,16 +388,12 @@ function revealNextLetter(){
     return;
   }
 
-  // 3) если видимой плитки нет — возможно нужная буква уже стоит в другом слоте.
-  //    найдем слот с этой буквой (и tileId) и переместим её на targetPos
   const otherPos = slotsState.findIndex((s, idx) => s.ch && s.ch.toLowerCase() === targetLetter.toLowerCase() && idx !== targetPos);
   if (otherPos !== -1) {
     const tileId = slotsState[otherPos].tileId;
-    // переместим
     slotsState[otherPos] = { ch:'', tileId:null };
     slotsState[targetPos] = { ch: targetLetter, tileId };
     updateSlotsUI();
-    // установим dragstart на целевой слот
     const slotEl = slotsEl.querySelector(`.slot[data-pos="${targetPos}"]`);
     if (slotEl && !slotEl.draggable){
       slotEl.draggable = true;
@@ -396,7 +403,6 @@ function revealNextLetter(){
     return;
   }
 
-  // 4) в редком случае ничего не найдено — ничего не делать, но деактивируем, если все заполнено
   updateHintButtonState();
 }
 
@@ -418,6 +424,8 @@ function checkAnswer(){
     feedback.style.color = 'green';
     feedback.textContent = 'Правильно! 🎉';
 
+    // увеличиваем и completed (прогресс), и индекс текущего слова
+    completed++;
     idx++;
     saveProgress();
     updateProgress();
@@ -454,19 +462,21 @@ function highlightWrongSlots(assembled, target){
 }
 
 /* ============================
-   localStorage
+   localStorage (сохранение idx + pool + completed)
    ============================ */
 function saveProgress(){
-  localStorage.setItem('russian_scramble_progress', JSON.stringify({pool, idx}));
+  const payload = { pool, idx, completed };
+  localStorage.setItem('russian_scramble_progress', JSON.stringify(payload));
 }
 function loadProgress(){
   const raw = localStorage.getItem('russian_scramble_progress');
   if (!raw) return false;
   try {
     const obj = JSON.parse(raw);
-    if (obj && Array.isArray(obj.pool) && typeof obj.idx === 'number'){
+    if (obj && Array.isArray(obj.pool) && typeof obj.idx === 'number' && typeof obj.completed === 'number'){
       pool = obj.pool;
       idx = obj.idx;
+      completed = obj.completed;
       return true;
     }
   }catch(e){}
@@ -495,7 +505,6 @@ function pickNext(){
   const w = pool[idx];
   prepareWord(w);
   updateProgress();
-  // hint включится/выключится в prepareWord через updateHintButtonState
 }
 
 /* Обработчики кнопок */
@@ -511,6 +520,7 @@ document.getElementById('shuffleBtn').addEventListener('click', ()=> {
 document.getElementById('checkBtn').addEventListener('click', checkAnswer);
 document.getElementById('nextBtn').addEventListener('click', ()=> {
   if (autoNextTimeoutId) { clearTimeout(autoNextTimeoutId); autoNextTimeoutId = null; }
+  // ручной переход — НЕ увеличиваем completed, только индекс текущего слова
   idx++;
   pickNext();
 });
