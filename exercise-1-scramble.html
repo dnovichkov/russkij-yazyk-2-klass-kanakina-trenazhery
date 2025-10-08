@@ -17,6 +17,7 @@
   .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   button, .btn{background:var(--accent);color:white;border:none;padding:10px;border-radius:10px;cursor:pointer}
   .btn.alt{background:#6b7280}
+  .btn[disabled]{opacity:0.5;cursor:not-allowed}
   .card{background:var(--card);padding:16px;border-radius:12px;box-shadow:0 6px 20px rgba(2,6,23,0.04);margin-bottom:12px}
   .scramble{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
   .tile{min-width:44px;min-height:44px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:#f8fafc;border:1px solid #e6eef8;font-size:20px;cursor:pointer;user-select:none}
@@ -45,7 +46,7 @@
       <div class="controls">
         <button id="playBtn">▶ Диктовка</button>
         <button id="replayBtn" class="btn alt">⟳ Повтор</button>
-        <button id="hintBtn" class="btn alt">💡 Подсказка (первая буква)</button>
+        <button id="hintBtn" class="btn alt">💡 Подсказка (следующая буква)</button>
         <button id="shuffleBtn" class="btn alt">🔀 Перемешать</button>
       </div>
       <div>
@@ -77,10 +78,9 @@
   <div class="card">
     <h3>Как это работает</h3>
     <ol>
-      <li>Слово произносится автоматически при загрузке страницы.</li>
-      <li>Добавляйте буквы кликом или перетаскиванием в нужные ячейки.</li>
-      <li>Неправильные буквы будут подсвечены красным после проверки.</li>
-      <li>При правильном ответе — автоматический переход к следующему слову (настраиваемая задержка).</li>
+      <li>Подсказка открывает первую **пустую** букву по порядку.</li>
+      <li>Если нужной буквы нет в банке, но она есть в другом слоте — она будет перемещена на своё место.</li>
+      <li>Когда все буквы открыты — подсказка отключается.</li>
     </ol>
   </div>
 </main>
@@ -89,9 +89,7 @@
 /* ============================
    Конфигурация авто-перехода
    ============================ */
-// задержка перед автоматическим переходом (мс)
 const AUTO_NEXT_DELAY = 600;
-// хранит ID таймера, чтобы можно было его отменить
 let autoNextTimeoutId = null;
 
 /* ============================
@@ -122,6 +120,7 @@ const progressEl = document.getElementById('progress');
 const bankEl = document.getElementById('bank');
 const slotsEl = document.getElementById('slots');
 const feedback = document.getElementById('feedback');
+const hintBtn = document.getElementById('hintBtn');
 
 /* ============================
    Инициализация пула и прогресс
@@ -135,7 +134,7 @@ function initPool() {
 function updateProgress(){ progressEl.textContent = `${idx} / ${pool.length}` }
 
 /* ============================
-   TTS: надёжное ожидание голосов
+   TTS
    ============================ */
 let voices = [];
 function loadVoices(){ voices = speechSynthesis.getVoices() || []; }
@@ -180,7 +179,7 @@ function speakText(text, rate=0.95){
 }
 
 /* ============================
-   Подготовка слова и рендер
+   Рендер и состояние слотов/плиток
    ============================ */
 function prepareWord(w) {
   current = w;
@@ -195,10 +194,10 @@ function prepareWord(w) {
   renderBank(tilesWithId);
   renderSlots(letters);
   feedback.textContent = '';
-  // ждать русские голоса (до заданного таймаута) и затем произнести слово автоматически
-  waitVoices(1000).then(()=> {
-    setTimeout(()=> speakText(current, 0.95), 150);
-  });
+  // автоматически произнести слово после небольшой паузы и ожидания голосов
+  waitVoices(1000).then(()=> setTimeout(()=> speakText(current, 0.95), 150));
+  // обновляем доступность подсказки
+  updateHintButtonState();
 }
 
 function renderBank(tiles) {
@@ -250,6 +249,7 @@ function onBankClick(e){
   const pos = slotsState.findIndex(v => v.ch === '');
   if (pos === -1) return;
   placeTileToSlot(tileId, letter, pos);
+  updateHintButtonState();
 }
 
 function onTileDragStart(e){
@@ -296,6 +296,7 @@ function onSlotDrop(e){
       showTileById(slotsState[pos].tileId);
     }
     placeTileToSlot(payload.id, payload.letter, pos);
+    updateHintButtonState();
   } else if (payload.from === 'slot'){
     const fromPos = payload.pos;
     if (fromPos === pos) return;
@@ -304,6 +305,7 @@ function onSlotDrop(e){
     slotsState[pos] = { ch: fromTile.ch, tileId: fromTile.tileId };
     slotsState[fromPos] = { ch: targetTile.ch || '', tileId: targetTile.tileId || null };
     updateSlotsUI();
+    updateHintButtonState();
   }
 }
 
@@ -321,6 +323,7 @@ function placeTileToSlot(tileId, letter, pos){
     slotEl.addEventListener('dragstart', onSlotDragStart);
   }
   updateSlotsUI();
+  updateHintButtonState();
 }
 
 function findTileElById(id){
@@ -339,6 +342,7 @@ function onSlotClick(e){
   showTileById(tileId);
   slotsState[pos] = { ch:'', tileId:null };
   updateSlotsUI();
+  updateHintButtonState();
 }
 
 function updateSlotsUI(){
@@ -352,6 +356,51 @@ function updateSlotsUI(){
 }
 
 /* ============================
+   Подсказка: открыть первую НЕЗАПОЛНЕННУЮ букву
+   ============================ */
+function revealNextLetter(){
+  // 1) найти первую пустую позицию (skip spaces)
+  const targetPos = slotsState.findIndex(s => s.ch === '');
+  if (targetPos === -1) {
+    // ничего не раскрывать, деактивируем кнопку
+    updateHintButtonState();
+    return;
+  }
+  const targetLetter = Array.from(current)[targetPos];
+  if (!targetLetter) { updateHintButtonState(); return; }
+
+  // 2) попытаться найти видимую плитку в банке с этой буквой
+  const visibleTile = Array.from(bankEl.children).find(t => t.dataset.letter === targetLetter && !t.classList.contains('hidden'));
+  if (visibleTile) {
+    placeTileToSlot(visibleTile.dataset.id, targetLetter, targetPos);
+    updateHintButtonState();
+    return;
+  }
+
+  // 3) если видимой плитки нет — возможно нужная буква уже стоит в другом слоте.
+  //    найдем слот с этой буквой (и tileId) и переместим её на targetPos
+  const otherPos = slotsState.findIndex((s, idx) => s.ch && s.ch.toLowerCase() === targetLetter.toLowerCase() && idx !== targetPos);
+  if (otherPos !== -1) {
+    const tileId = slotsState[otherPos].tileId;
+    // переместим
+    slotsState[otherPos] = { ch:'', tileId:null };
+    slotsState[targetPos] = { ch: targetLetter, tileId };
+    updateSlotsUI();
+    // установим dragstart на целевой слот
+    const slotEl = slotsEl.querySelector(`.slot[data-pos="${targetPos}"]`);
+    if (slotEl && !slotEl.draggable){
+      slotEl.draggable = true;
+      slotEl.addEventListener('dragstart', onSlotDragStart);
+    }
+    updateHintButtonState();
+    return;
+  }
+
+  // 4) в редком случае ничего не найдено — ничего не делать, но деактивируем, если все заполнено
+  updateHintButtonState();
+}
+
+/* ============================
    Проверка и подсветка ошибок + авто-переход
    ============================ */
 function getAssembled(){
@@ -359,33 +408,27 @@ function getAssembled(){
 }
 
 function checkAnswer(){
-  // отменяем предыдущий авто-переход, если есть
   if (autoNextTimeoutId) { clearTimeout(autoNextTimeoutId); autoNextTimeoutId = null; }
 
   const assembled = getAssembled();
   const target = current;
   if (assembled.toLowerCase() === target.toLowerCase()){
-    // остановить голос, если он ещё звучит
     if ('speechSynthesis' in window) speechSynthesis.cancel();
 
     feedback.style.color = 'green';
     feedback.textContent = 'Правильно! 🎉';
 
-    // обновляем прогресс
     idx++;
     saveProgress();
     updateProgress();
 
-    // автопереход через AUTO_NEXT_DELAY (с возможностью отмены)
     autoNextTimeoutId = setTimeout(() => {
       autoNextTimeoutId = null;
       pickNext();
     }, AUTO_NEXT_DELAY);
 
   } else {
-    // неверный ответ — отменяем авто-переход и подсвечиваем ошибки
     if (autoNextTimeoutId) { clearTimeout(autoNextTimeoutId); autoNextTimeoutId = null; }
-
     feedback.style.color = 'crimson';
     feedback.textContent = 'Неправильно. Подсвечу ошибочные буквы.';
     highlightWrongSlots(assembled, target);
@@ -411,20 +454,6 @@ function highlightWrongSlots(assembled, target){
 }
 
 /* ============================
-   Подсказка
-   ============================ */
-function revealFirst(){
-  const letters = Array.from(current);
-  const firstLetter = letters.find(ch => ch !== ' ');
-  if (!firstLetter) return;
-  const pos = slotsState.findIndex(v => v.ch === '');
-  if (pos === -1) return;
-  const tileEl = Array.from(bankEl.children).find(t => t.dataset.letter === firstLetter && !t.classList.contains('hidden'));
-  if (!tileEl) return;
-  placeTileToSlot(tileEl.dataset.id, firstLetter, pos);
-}
-
-/* ============================
    localStorage
    ============================ */
 function saveProgress(){
@@ -445,10 +474,17 @@ function loadProgress(){
 }
 
 /* ============================
+   Управление доступностью подсказки
+   ============================ */
+function updateHintButtonState(){
+  const anyEmpty = slotsState.some(s => s.ch === '');
+  hintBtn.disabled = !anyEmpty;
+}
+
+/* ============================
    Навигация по словам
    ============================ */
 function pickNext(){
-  // отменяем авто-таймер, если есть (защита)
   if (autoNextTimeoutId) { clearTimeout(autoNextTimeoutId); autoNextTimeoutId = null; }
 
   if (!pool || pool.length === 0) initPool();
@@ -459,20 +495,21 @@ function pickNext(){
   const w = pool[idx];
   prepareWord(w);
   updateProgress();
+  // hint включится/выключится в prepareWord через updateHintButtonState
 }
 
 /* Обработчики кнопок */
 document.getElementById('playBtn').addEventListener('click', ()=> speakText(current));
 document.getElementById('replayBtn').addEventListener('click', ()=> speakText(current));
-document.getElementById('hintBtn').addEventListener('click', revealFirst);
+hintBtn.addEventListener('click', revealNextLetter);
 document.getElementById('shuffleBtn').addEventListener('click', ()=> {
   const tiles = Array.from(bankEl.children).map(t => ({id:t.dataset.id, ch:t.dataset.letter}));
   tiles.sort(()=>Math.random()-0.5);
   renderBank(tiles);
+  updateHintButtonState();
 });
 document.getElementById('checkBtn').addEventListener('click', checkAnswer);
 document.getElementById('nextBtn').addEventListener('click', ()=> {
-  // ручной переход — отменяем автопереход и идём дальше
   if (autoNextTimeoutId) { clearTimeout(autoNextTimeoutId); autoNextTimeoutId = null; }
   idx++;
   pickNext();
@@ -490,6 +527,7 @@ bankEl.addEventListener('drop', e => {
       if (typeof pos === 'number') {
         slotsState[pos] = { ch:'', tileId:null };
         updateSlotsUI();
+        updateHintButtonState();
       }
     }
   } catch(err){}
