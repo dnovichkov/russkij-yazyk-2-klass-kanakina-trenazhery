@@ -1,0 +1,13 @@
+# Статический сайт: после push в main сервер делает git pull, а Caddy отдаёт файлы напрямую.
+# Маршрут и режим деплоя описаны в projects.toml репозитория sites_configs.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    uses: dnovichkov/sites_configs/.github/workflows/deploy.yml@main
+    secrets: inherit
